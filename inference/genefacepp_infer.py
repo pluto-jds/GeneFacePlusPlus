@@ -42,6 +42,8 @@ from modules.radnerfs.radnerf_sr import RADNeRFwithSR
 from modules.radnerfs.radnerf_torso import RADNeRFTorso
 from modules.radnerfs.radnerf_torso_sr import RADNeRFTorsowithSR
 
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 face3d_helper = None
 def vis_cano_lm3d_to_imgs(cano_lm3d, hw=512):

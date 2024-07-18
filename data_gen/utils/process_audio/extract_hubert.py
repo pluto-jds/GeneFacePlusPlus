@@ -19,6 +19,8 @@ def get_hubert_from_16k_wav(wav_16k_name):
 def get_hubert_from_16k_speech(speech, device="cuda:0"):
     global hubert_model, wav2vec2_processor
     local_path = '/home/tiger/.cache/huggingface/hub/models--facebook--hubert-large-ls960-ft/snapshots/ece5fabbf034c1073acae96d5401b25be96709d8'
+    os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+    os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
     if hubert_model is None:
         print("Loading the HuBERT Model...")
         if os.path.exists(local_path):

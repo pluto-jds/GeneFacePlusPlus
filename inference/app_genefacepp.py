@@ -7,6 +7,9 @@ from utils.commons.hparams import hparams
 import random
 import time
 
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
 class Inferer(GeneFace2Infer):
     def infer_once_args(self, *args, **kargs):
         assert len(kargs) == 0
@@ -224,7 +227,7 @@ if __name__ == "__main__":
     parser.add_argument("--head_ckpt", type=str, default='')
     parser.add_argument("--torso_ckpt", type=str, default='checkpoints/motion2video_nerf/may_torso/model_ckpt_steps_250000.ckpt') 
     parser.add_argument("--port", type=int, default=None) 
-    parser.add_argument("--server", type=str, default='127.0.0.1') 
+    parser.add_argument("--server", type=str, default='192.168.31.26') 
 
     args = parser.parse_args()
     demo = genefacepp_demo(
