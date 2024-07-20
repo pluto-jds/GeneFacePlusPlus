@@ -15,6 +15,16 @@ def extract_img_job(video_name, raw_img_dir=None):
     cmd = f'{ffmpeg_path} -i {video_name} -vf fps={25},scale=w=512:h=512 -qmin 1 -q:v 1 -start_number 0 -v quiet {os.path.join(out_path, "%8d.jpg")}'
     os.system(cmd)
 
+def extract_fusion_img_job(video_name, raw_img_dir=None):
+    if raw_img_dir is not None:
+        out_path = raw_img_dir
+    else:
+        out_path = pc.to(video_name.replace(".mp4", ""), "vid", "gt")
+    os.makedirs(out_path, exist_ok=True)
+    ffmpeg_path = "/usr/bin/ffmpeg"
+    cmd = f'{ffmpeg_path} -i {video_name} -vf fps={25} -qmin 1 -q:v 1 -start_number 0 -v quiet {os.path.join(out_path, "%8d.jpg")}'
+    os.system(cmd)
+
 if __name__ == '__main__':
     import argparse, glob, tqdm, random
     parser = argparse.ArgumentParser()

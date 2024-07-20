@@ -1,3 +1,29 @@
+# gen_head.mp4 为11s视频，先将raw.mp4裁剪为11s
+# ffmpeg -ss 00:00:35 -i raw.mp4 -t 00:00:11 -c copy body.mp4
+# body.mp4 1080*1920
+# gen_head.mp4 512*512
+
+# 1 将 body.mp4 转换为图片 bodys
+# 2 将 gen_head.mp4  转换为图片 heads
+# 3 bodys 做人物和背景分离
+# 4 将多个背景叠加（前提是背景是静止）该操作视情况可选
+# 5 识别 bodys 头部并将头部扣去
+# 6 分离 heads 的头部
+# 7 拼接 heads 和 bodys
+
+""" 可以用下面这个方法提取图片，需要规避resize到512*512的操作
+export PYTHONPATH=./
+export VIDEO_ID=body
+export CUDA_VISIBLE_DEVICES=0
+ffmpeg -i data_fusion/input/body.mp4 -vf fps=25 -qmin 1 -q:v 1 -start_number 0 data_fusion/body/gt_imgs/%08d.jpg
+python data_gen/utils/process_video/fusion_head_body.py --ds_name=nerf --vid_dir=data_fusion/input/body.mp4
+
+ffmpeg -i data_fusion/input/head.mp4 -vf fps=25 -qmin 1 -q:v 1 -start_number 0 data_fusion/head/gt_imgs/%08d.jpg
+"""
+# 放数据的目录为 data_fusion，子目录是 audio、head、body 和 output
+# 音频得做16K采样、head 完成生成操作、body是原来截取得图
+# 
+
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
 import random
@@ -23,7 +49,7 @@ mat_model   = None
 lama_model  = None
 lama_config = None
 
-from data_gen.utils.process_video.split_video_to_imgs import extract_img_job
+from data_gen.utils.process_video.split_video_to_imgs import extract_fusion_img_job
 
 BG_NAME_MAP = {
     "knn": "",
@@ -59,91 +85,6 @@ def image_similarity(x: np.ndarray, y: np.ndarray, method="mse"):
         return np.mean((x - y) ** 2)
     else:
         raise NotImplementedError
-
-def extract_background(img_lst, segmap_mask_lst=None, method="knn", device='cpu', mix_bg=True):
-    """
-    img_lst: list of rgb ndarray
-    method: "knn"
-    """
-    global segmenter
-    global seg_model
-    global mat_model
-    global lama_model
-    global lama_config
-    
-    assert len(img_lst) > 0
-    if segmap_mask_lst is not None:
-        assert len(segmap_mask_lst) == len(img_lst)
-    else:
-        del segmenter
-        del seg_model
-        seg_model = MediapipeSegmenter()
-        segmenter = vision.ImageSegmenter.create_from_options(seg_model.video_options)
-        
-    def get_segmap_mask(img_lst, segmap_mask_lst, index):
-        if segmap_mask_lst is not None:
-            segmap = refresh_segment_mask(segmap_mask_lst[index])
-        else:
-            segmap = seg_model._cal_seg_map(refresh_image(img_lst[index]), segmenter=segmenter)
-        return segmap
-        
-    if method == "knn":
-        num_frames = len(img_lst)
-        if num_frames <= 100:
-            FRAME_SELECT_INTERVAL = 5
-        elif num_frames < 10000:
-            FRAME_SELECT_INTERVAL = 20
-        else:
-            FRAME_SELECT_INTERVAL = num_frames // 500
-
-        img_lst = img_lst[::FRAME_SELECT_INTERVAL] if num_frames > FRAME_SELECT_INTERVAL else img_lst[0:1]
-            
-        if segmap_mask_lst is not None:
-            segmap_mask_lst = segmap_mask_lst[::FRAME_SELECT_INTERVAL] if num_frames > FRAME_SELECT_INTERVAL else segmap_mask_lst[0:1]
-            assert len(img_lst) == len(segmap_mask_lst)
-        # get H/W
-        h, w = refresh_image(img_lst[0]).shape[:2]
-
-        # nearest neighbors
-        all_xys = np.mgrid[0:h, 0:w].reshape(2, -1).transpose() # [512*512, 2] coordinate grid
-        distss = []
-        for idx, img in tqdm.tqdm(enumerate(img_lst), desc='combining backgrounds...', total=len(img_lst)):
-            segmap = get_segmap_mask(img_lst=img_lst, segmap_mask_lst=segmap_mask_lst, index=idx)
-            bg = (segmap[0]).astype(bool) # [h,w] bool mask
-            fg_xys = np.stack(np.nonzero(~bg)).transpose(1, 0) # [N_nonbg,2] coordinate of non-bg pixels
-            nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(fg_xys)
-            dists, _ = nbrs.kneighbors(all_xys) # [512*512, 1] distance to nearest non-bg pixel
-            distss.append(dists)
-
-        distss = np.stack(distss) # [B, 512*512, 1]
-        max_dist = np.max(distss, 0) # [512*512, 1]
-        max_id = np.argmax(distss, 0) # id of frame
-
-        bc_pixs = max_dist > 10 # 在各个frame有一个出现过是bg的pixel，bg标准是离最近的non-bg pixel距离大于10
-        bc_pixs_id = np.nonzero(bc_pixs)
-        bc_ids = max_id[bc_pixs]
-
-        # TODO: maybe we should reimplement here to avoid memory costs?
-        # though there is upper limits of images here
-        num_pixs = distss.shape[1]
-        bg_img = np.zeros((h*w, 3), dtype=np.uint8)
-        img_lst = [refresh_image(img) for img in img_lst] 
-        imgs = np.stack(img_lst).reshape(-1, num_pixs, 3) 
-        bg_img[bc_pixs_id, :] = imgs[bc_ids, bc_pixs_id, :] # 对那些铁bg的pixel，直接去对应的image里面采样
-        bg_img = bg_img.reshape(h, w, 3)
-
-        max_dist = max_dist.reshape(h, w)
-        bc_pixs = max_dist > 10 # 5
-        bg_xys = np.stack(np.nonzero(~bc_pixs)).transpose()
-        fg_xys = np.stack(np.nonzero(bc_pixs)).transpose()
-        nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(fg_xys)
-        distances, indices = nbrs.kneighbors(bg_xys) # 对non-bg img，用KNN找最近的bg pixel
-        bg_fg_xys = fg_xys[indices[:, 0]]
-        bg_img[bg_xys[:, 0], bg_xys[:, 1], :] = bg_img[bg_fg_xys[:, 0], bg_fg_xys[:, 1], :]
-    else:
-        raise NotImplementedError # deperated
-    
-    return bg_img
 
 def inpaint_torso_job(gt_img, segmap):
     bg_part = (segmap[0]).astype(bool)
@@ -244,12 +185,6 @@ def load_segment_mask_from_file(filename: str):
     return segmap_mask
 
 # load segment mask to memory if not loaded yet
-def refresh_segment_mask(segmap_mask: Union[str, np.ndarray]):
-    if isinstance(segmap_mask, str):
-        segmap_mask = load_segment_mask_from_file(segmap_mask)
-    return segmap_mask
-
-# load segment mask to memory if not loaded yet
 def refresh_image(image: Union[str, np.ndarray]):
     if isinstance(image, str):
         image = load_rgb_image_to_path(image)
@@ -312,17 +247,13 @@ def extract_segment_job(
             cuda_id = pid % total_gpus
             device = f"cuda:{cuda_id}"
 
-        if nerf: # single video
-            raw_img_dir = video_name.replace(".mp4", "/gt_imgs/").replace("/raw/","/processed/")
-        else: # whole dataset
-            raw_img_dir = video_name.replace(".mp4", "").replace("/video/", "/gt_imgs/")
+        raw_img_dir = video_name.replace(".mp4", "/gt_imgs/").replace("/input/","/")
         if not os.path.exists(raw_img_dir):
-            extract_img_job(video_name, raw_img_dir) # use ffmpeg to split video into imgs
+            extract_fusion_img_job(video_name, raw_img_dir) # use ffmpeg to split video into imgs
         
         img_names = glob.glob(os.path.join(raw_img_dir, "*.jpg"))
-
+       
         img_lst = []
-
         for img_name in img_names:
             if store_in_memory:
                 img = load_rgb_image_to_path(img_name)
@@ -331,6 +262,7 @@ def extract_segment_job(
             img_lst.append(img)
 
         print("| Extracting Segmaps && Saving...")
+        
         args = []
         segmap_mask_lst = []
         # preparing parameters for segment
@@ -345,7 +277,7 @@ def extract_segment_job(
                 segmenter_arg = segmenter
             arg = (img_name, img, options, segmenter_arg, store_in_memory)
             args.append(arg)
-            
+          
         if multiprocess_enable:
             for (_, res) in multiprocess_run_tqdm(segment_and_generate_for_image_job, args=args, num_workers=16, desc='generating segment images in multi-processes...'):
                 segmap_mask = res
@@ -355,29 +287,6 @@ def extract_segment_job(
                 segmap_mask = segment_and_generate_for_image_job(*args[index])
                 segmap_mask_lst.append(segmap_mask)
         print("| Extracted Segmaps Done.")
-        
-        print("| Extracting background...")
-        bg_prefix_name = f"bg{BG_NAME_MAP[background_method]}"
-        bg_img = extract_background(img_lst, segmap_mask_lst, method=background_method, device=device, mix_bg=mix_bg)
-        if nerf:
-            out_img_name = video_name.replace("/raw/", "/processed/").replace(".mp4", f"/{bg_prefix_name}.jpg")
-        else:
-            out_img_name = video_name.replace("/video/", f"/{bg_prefix_name}_img/").replace(".mp4", ".jpg")
-        save_rgb_image_to_path(bg_img, out_img_name)
-        print("| Extracted background done.")
-        
-        print("| Extracting com_imgs...")
-        com_prefix_name = f"com{BG_NAME_MAP[background_method]}"
-        for i in tqdm.trange(len(img_names), desc='extracting com_imgs'):
-            img_name = img_names[i]
-            com_img = refresh_image(img_lst[i]).copy()
-            segmap = refresh_segment_mask(segmap_mask_lst[i])
-            bg_part = segmap[0].astype(bool)[..., None].repeat(3,axis=-1)
-            com_img[bg_part] = bg_img[bg_part]
-            out_img_name = img_name.replace("/gt_imgs/", f"/{com_prefix_name}_imgs/")
-            save_rgb_image_to_path(com_img, out_img_name)
-        print("| Extracted com_imgs done.")
-        
         return 0
     except Exception as e:
         print(str(type(e)), e)
@@ -412,7 +321,7 @@ def get_todo_vid_names(vid_names, background_method='knn'):
 if __name__ == '__main__':
     import argparse, glob, tqdm, random
     parser = argparse.ArgumentParser()
-    parser.add_argument("--vid_dir", default='data/raw/videos/May.mp4')
+    parser.add_argument("--vid_dir", default='data_fusion/input/body/body.mp4')
     parser.add_argument("--ds_name", default='nerf')
     parser.add_argument("--num_workers", default=48, type=int)
     parser.add_argument("--seed", default=0, type=int)
@@ -440,31 +349,7 @@ if __name__ == '__main__':
     for d in devices[:total_gpus]:
         os.system(f'pkill -f "voidgpu{d}"')
         
-    if ds_name.lower() == 'nerf': # 处理单个视频
-        vid_names = [vid_dir]
-        out_names = [video_name.replace("/raw/", "/processed/").replace(".mp4","_lms.npy") for video_name in vid_names]
-    else: # 处理整个数据集
-        if ds_name in ['lrs3_trainval']:
-            vid_name_pattern = os.path.join(vid_dir, "*/*.mp4")
-        elif ds_name in ['TH1KH_512', 'CelebV-HQ']:
-            vid_name_pattern = os.path.join(vid_dir, "*.mp4")
-        elif ds_name in ['lrs2', 'lrs3', 'voxceleb2']:
-            vid_name_pattern = os.path.join(vid_dir, "*/*/*.mp4")
-        elif ds_name in ["RAVDESS", 'VFHQ']:
-            vid_name_pattern = os.path.join(vid_dir, "*/*/*/*.mp4")
-        else:
-            raise NotImplementedError()
-        
-        vid_names_path = os.path.join(vid_dir, "vid_names.pkl")
-        if os.path.exists(vid_names_path) and load_names:
-            print(f"loading vid names from {vid_names_path}")
-            vid_names = load_file(vid_names_path)
-        else:
-            vid_names = multiprocess_glob(vid_name_pattern)
-        vid_names = sorted(vid_names)
-        print(f"saving vid names to {vid_names_path}")
-        save_file(vid_names_path, vid_names)
-
+    vid_names = [vid_dir]
     vid_names = sorted(vid_names)
     random.seed(args.seed)
     random.shuffle(vid_names)
@@ -484,11 +369,7 @@ if __name__ == '__main__':
     print(f"todo videos number: {len(vid_names)}")
 
     device = "cuda" if total_gpus > 0 else "cpu"
+    print("*********{}*******".format(vid_names[0]))
     extract_job = extract_segment_job
     fn_args = [(vid_name, ds_name=='nerf', background_method, device, total_gpus, mix_bg, store_in_memory, force_single_process) for i, vid_name in enumerate(vid_names)]
-        
-    if ds_name == 'nerf': # 处理单个视频
-        extract_job(*fn_args[0])
-    else:
-        for vid_name in multiprocess_run_tqdm(extract_job, fn_args, desc=f"Root process {args.process_id}:  segment images", num_workers=args.num_workers):
-            pass
+    extract_job(*fn_args[0])
