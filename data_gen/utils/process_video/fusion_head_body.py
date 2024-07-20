@@ -22,7 +22,7 @@ ffmpeg -i data_fusion/input/head.mp4 -vf fps=25 -qmin 1 -q:v 1 -start_number 0 d
 """
 # 放数据的目录为 data_fusion，子目录是 audio、head、body 和 output
 # 音频得做16K采样、head 完成生成操作、body是原来截取得图
-# 
+# 提取带有脖子的图方便拼接
 
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -197,7 +197,7 @@ def generate_segment_imgs_job(img_name, segmap, img):
     encoded_segmap = encode_segmap_mask_to_image(segmap)
     save_rgb_image_to_path(encoded_segmap, out_img_name)
 
-    for mode in ['head', 'torso', 'person', 'bg']:
+    for mode in ['head', 'torso', 'person', 'bg', 'head_neck']:
         out_img, mask = seg_model._seg_out_img_with_segmap(img, segmap, mode=mode)
         img_alpha = 255 * np.ones((img.shape[0], img.shape[1], 1), dtype=np.uint8) # alpha
         mask = mask[0][..., None]

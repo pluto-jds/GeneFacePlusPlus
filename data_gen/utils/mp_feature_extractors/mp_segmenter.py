@@ -249,6 +249,10 @@ class MediapipeSegmenter:
         elif mode == 'bg':
             selected_mask = segmap[[0], :, :].sum(axis=0)[None,:] > 0.5  # only seg out 0, which means background
             img[~selected_mask.repeat(3,axis=0).transpose(1,2,0)] = 0 # (-1,-1,-1) denotes black in our [-1,1] convention
+        elif mode == 'head_neck':
+            selected_mask = segmap[[1,2,3,5], :, :].sum(axis=0)[None,:] > 0.5 
+            img[~selected_mask.repeat(3,axis=0).transpose(1,2,0)] = 0 # (-1,-1,-1) denotes black in our [-1,1] convention
+            pass
         elif mode == 'full':
             pass
         else:
