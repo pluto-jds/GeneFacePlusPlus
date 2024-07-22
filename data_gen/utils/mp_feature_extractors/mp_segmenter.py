@@ -9,6 +9,7 @@ from mediapipe.tasks.python import vision
 from utils.commons.multiprocess_utils import multiprocess_run_tqdm, multiprocess_run
 from utils.commons.tensor_utils import convert_to_np
 from sklearn.neighbors import NearestNeighbors
+import cv2
 
 def scatter_np(condition_img, classSeg=5):
 # def scatter(condition_img, classSeg=19, label_size=(512, 512)):
@@ -235,6 +236,7 @@ class MediapipeSegmenter:
         img = copy.deepcopy(img)
         if mode == 'head':
             selected_mask = segmap[[1,3,5] , :, :].sum(axis=0)[None,:] > 0.5 # glasses 也属于others
+            
             img[~selected_mask.repeat(3,axis=0).transpose(1,2,0)] = 0 # (-1,-1,-1) denotes black in our [-1,1] convention
             # selected_mask = segmap[[1,3] , :, :].sum(dim=0, keepdim=True) > 0.5
         elif mode == 'person':
@@ -251,8 +253,7 @@ class MediapipeSegmenter:
             img[~selected_mask.repeat(3,axis=0).transpose(1,2,0)] = 0 # (-1,-1,-1) denotes black in our [-1,1] convention
         elif mode == 'head_neck':
             selected_mask = segmap[[1,2,3,5], :, :].sum(axis=0)[None,:] > 0.5 
-            img[~selected_mask.repeat(3,axis=0).transpose(1,2,0)] = 0 # (-1,-1,-1) denotes black in our [-1,1] convention
-            pass
+            img[~selected_mask.repeat(3,axis=0).transpose(1,2,0)] = 0 # (-1,-1,-1) denotes black in our [-1,1] convention   
         elif mode == 'full':
             pass
         else:

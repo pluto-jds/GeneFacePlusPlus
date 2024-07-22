@@ -23,6 +23,7 @@ ffmpeg -i data_fusion/input/head.mp4 -vf fps=25 -qmin 1 -q:v 1 -start_number 0 d
 # 放数据的目录为 data_fusion，子目录是 audio、head、body 和 output
 # 音频得做16K采样、head 完成生成操作、body是原来截取得图
 # 提取带有脖子的图方便拼接
+# data_fusion/body 的 torso_imgs 和 data_fusion/head 的 head_neck_imgs 拼接 
 
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -42,6 +43,7 @@ from scipy.ndimage import binary_erosion, binary_dilation
 from sklearn.neighbors import NearestNeighbors
 from mediapipe.tasks.python import vision
 from data_gen.utils.mp_feature_extractors.mp_segmenter import MediapipeSegmenter, encode_segmap_mask_to_image, decode_segmap_mask_from_image, job_cal_seg_map_for_image
+from PIL import Image
 
 seg_model   = None
 segmenter   = None
@@ -318,6 +320,55 @@ def get_todo_vid_names(vid_names, background_method='knn'):
             todo_vid_names.append(res)
     return todo_vid_names
 
+def overlay_images(body_img_path, head_img_path, output_img_path, position):
+    """
+    将头部图片粘贴到身体图片上的指定位置，并保存合成后的图像。
+    
+    :param body_img_path: 身体图片的路径
+    :param head_img_path: 头部图片的路径
+    :param output_img_path: 输出合成图片的路径
+    :param position: 粘贴位置的元组 (x, y)
+    """
+    # 打开身体图片和头部图片
+    body_img = Image.open(body_img_path)
+    head_img = Image.open(head_img_path)
+
+    # 粘贴头部图片到身体图片的指定位置
+    body_img.paste(head_img, position, head_img)  # 使用头部图片本身作为掩码
+
+    # 保存合成后的图像
+    body_img.save(output_img_path)
+
+def calculate_face_pos():
+    pass
+
+def fusion_head_body():
+# data_fusion/body 的 torso_imgs 和 data_fusion/head 的 head_neck_imgs 拼接
+    print("fusion head body")
+    output_imgs_dir = "data_fusion/output/"
+    body_imgs_dir = "data_fusion/body/torso_imgs"
+    body_imgs_names = glob.glob(os.path.join(body_imgs_dir, "*.png"))
+    head_imgs_dir = "data_fusion/head/head_neck_imgs"
+    head_imgs_names = glob.glob(os.path.join(head_imgs_dir, "*.png"))
+    body_imgs_len = len(body_imgs_names)
+    head_imgs_len = len(head_imgs_names)
+    print("body_imgs_names len:", len(body_imgs_names))
+    print("head_imgs_names len:", len(head_imgs_names))
+    min_len = body_imgs_len if body_imgs_len<head_imgs_len else head_imgs_len
+    print("min_len:", min_len)
+    for i in range(min_len):
+        img_name = f"{i:08d}.png"
+        head_img_name = os.path.join(head_imgs_dir, img_name)
+        body_img_name = os.path.join(body_imgs_dir, img_name)
+        print("{}:{}".format(head_img_name, body_img_name))
+        output_img_name = os.path.join(output_imgs_dir, img_name)
+        
+        position = (300, 454)
+        # 执行粘贴操作
+        overlay_images(body_img_name, head_img_name, output_img_name, position)
+    
+
+
 if __name__ == '__main__':
     import argparse, glob, tqdm, random
     parser = argparse.ArgumentParser()
@@ -334,7 +385,8 @@ if __name__ == '__main__':
     parser.add_argument("--no_mix_bg", action="store_true")
     parser.add_argument("--store_in_memory", action="store_true") # set to True to speed up preprocess, but leads to high memory costs
     parser.add_argument("--force_single_process", action="store_true") # turn this on if you find multi-process does not work on your environment
-
+    parser.add_argument("--fusion_process", action="store_true")
+    
     args = parser.parse_args()
     vid_dir = args.vid_dir
     ds_name = args.ds_name
@@ -344,32 +396,36 @@ if __name__ == '__main__':
     mix_bg = not args.no_mix_bg
     store_in_memory = args.store_in_memory
     force_single_process = args.force_single_process
+    fusion_process = args.fusion_process
+    print("fusion_process:", fusion_process)
+    if fusion_process==False:
+        devices = os.environ.get('CUDA_VISIBLE_DEVICES', '').split(",")
+        for d in devices[:total_gpus]:
+            os.system(f'pkill -f "voidgpu{d}"')
+            
+        vid_names = [vid_dir]
+        vid_names = sorted(vid_names)
+        random.seed(args.seed)
+        random.shuffle(vid_names)
 
-    devices = os.environ.get('CUDA_VISIBLE_DEVICES', '').split(",")
-    for d in devices[:total_gpus]:
-        os.system(f'pkill -f "voidgpu{d}"')
+        process_id = args.process_id
+        total_process = args.total_process
+        if total_process > 1:
+            assert process_id <= total_process -1
+            num_samples_per_process = len(vid_names) // total_process
+            if process_id == total_process:
+                vid_names = vid_names[process_id * num_samples_per_process : ]
+            else:
+                vid_names = vid_names[process_id * num_samples_per_process : (process_id+1) * num_samples_per_process]
         
-    vid_names = [vid_dir]
-    vid_names = sorted(vid_names)
-    random.seed(args.seed)
-    random.shuffle(vid_names)
+        if not args.reset:
+            vid_names = get_todo_vid_names(vid_names, background_method)
+        print(f"todo videos number: {len(vid_names)}")
 
-    process_id = args.process_id
-    total_process = args.total_process
-    if total_process > 1:
-        assert process_id <= total_process -1
-        num_samples_per_process = len(vid_names) // total_process
-        if process_id == total_process:
-            vid_names = vid_names[process_id * num_samples_per_process : ]
-        else:
-            vid_names = vid_names[process_id * num_samples_per_process : (process_id+1) * num_samples_per_process]
-    
-    if not args.reset:
-        vid_names = get_todo_vid_names(vid_names, background_method)
-    print(f"todo videos number: {len(vid_names)}")
-
-    device = "cuda" if total_gpus > 0 else "cpu"
-    print("*********{}*******".format(vid_names[0]))
-    extract_job = extract_segment_job
-    fn_args = [(vid_name, ds_name=='nerf', background_method, device, total_gpus, mix_bg, store_in_memory, force_single_process) for i, vid_name in enumerate(vid_names)]
-    extract_job(*fn_args[0])
+        device = "cuda" if total_gpus > 0 else "cpu"
+        print("*********{}*******".format(vid_names[0]))
+        extract_job = extract_segment_job
+        fn_args = [(vid_name, ds_name=='nerf', background_method, device, total_gpus, mix_bg, store_in_memory, force_single_process) for i, vid_name in enumerate(vid_names)]
+        extract_job(*fn_args[0])
+    else:
+        fusion_head_body()
