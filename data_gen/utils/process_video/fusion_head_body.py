@@ -204,7 +204,7 @@ def generate_segment_imgs_job(img_name, segmap, img):
     encoded_segmap = encode_segmap_mask_to_image(segmap)
     save_rgb_image_to_path(encoded_segmap, out_img_name)
 
-    for mode in ['head', 'torso', 'person', 'bg', 'head_neck', 'without_head']:
+    for mode in ['head', 'torso', 'person', 'bg', 'head_neck', 'without_head', 'full']:
         out_img, mask = seg_model._seg_out_img_with_segmap(img, segmap, mode=mode)
         img_alpha = 255 * np.ones((img.shape[0], img.shape[1], 1), dtype=np.uint8) # alpha
         mask = mask[0][..., None]
@@ -376,7 +376,8 @@ def fusion_head_body():
     
     output_imgs_dir = "data_fusion/output/"
 
-    body_imgs_dir = "data_fusion/body/without_head_imgs"
+    #body_imgs_dir = "data_fusion/body/without_head_imgs"
+    body_imgs_dir = "data_fusion/body/full_imgs"
     body_imgs_names = glob.glob(os.path.join(body_imgs_dir, "*.png"))
     head_imgs_dir = "data_fusion/head/head_neck_imgs"
     head_imgs_names = glob.glob(os.path.join(head_imgs_dir, "*.png"))

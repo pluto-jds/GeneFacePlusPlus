@@ -263,7 +263,8 @@ class MediapipeSegmenter:
             selected_mask = segmap[[0,2,4], :, :].sum(axis=0)[None,:] > 0.5 
             img[~selected_mask.repeat(3,axis=0).transpose(1,2,0)] = 0 # (-1,-1,-1) denotes black in our [-1,1] convention  
         elif mode == 'full':
-            pass
+            selected_mask = segmap[[0,1,2,3,4,5], :, :].sum(axis=0)[None,:] > 0.5 
+            img[~selected_mask.repeat(3,axis=0).transpose(1,2,0)] = 0 # (-1,-1,-1) denotes black in our [-1,1] convention  
         else:
             raise NotImplementedError()
         return img, selected_mask
