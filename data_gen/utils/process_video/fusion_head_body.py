@@ -15,10 +15,15 @@
 export PYTHONPATH=./
 export VIDEO_ID=body
 export CUDA_VISIBLE_DEVICES=0
+
+#剪切视频
+ffmpeg -ss 00:00:00 -i body.mp4 -t 54 -c copy output.mp4
+
 ffmpeg -i data_fusion/input/body.mp4 -vf fps=25 -qmin 1 -q:v 1 -start_number 0 data_fusion/body/gt_imgs/%08d.jpg
 python data_gen/utils/process_video/fusion_head_body.py --ds_name=nerf --vid_dir=data_fusion/input/body.mp4
 
 ffmpeg -i data_fusion/input/head.mp4 -vf fps=25 -qmin 1 -q:v 1 -start_number 0 data_fusion/head/gt_imgs/%08d.jpg
+python data_gen/utils/process_video/fusion_head_body.py --ds_name=nerf --fusion_process
 """
 # 放数据的目录为 data_fusion，子目录是 audio、head、body 和 output
 # 音频得做16K采样、head 完成生成操作、body是原来截取得图
@@ -199,13 +204,14 @@ def generate_segment_imgs_job(img_name, segmap, img):
     encoded_segmap = encode_segmap_mask_to_image(segmap)
     save_rgb_image_to_path(encoded_segmap, out_img_name)
 
-    for mode in ['head', 'torso', 'person', 'bg', 'head_neck']:
+    for mode in ['head', 'torso', 'person', 'bg', 'head_neck', 'without_head']:
         out_img, mask = seg_model._seg_out_img_with_segmap(img, segmap, mode=mode)
         img_alpha = 255 * np.ones((img.shape[0], img.shape[1], 1), dtype=np.uint8) # alpha
         mask = mask[0][..., None]
         img_alpha[~mask] = 0
         out_img_name = img_name.replace("/gt_imgs/", f"/{mode}_imgs/").replace(".jpg", ".png")
         save_rgb_alpha_image_to_path(out_img, img_alpha, out_img_name)
+
     
     inpaint_torso_img, inpaint_torso_img_mask, inpaint_torso_with_bg_img, inpaint_torso_with_bg_img_mask = inpaint_torso_job(img, segmap)
     img_alpha = 255 * np.ones((img.shape[0], img.shape[1], 1), dtype=np.uint8) # alpha
@@ -342,11 +348,35 @@ def overlay_images(body_img_path, head_img_path, output_img_path, position):
 def calculate_face_pos():
     pass
 
+def gen_video(directory, input_audio, output_video_dir):
+    png_files = glob.glob(os.path.join(directory, '*.png'))
+    if len(png_files) == 0:
+        return
+    # image to video
+    output_video_tmp = os.path.join(output_video_dir, "tmp.mp4")
+    cmd = f"ffmpeg -y -v fatal -r 25 -f image2 -i {directory}/%08d.png -vcodec libx264 -vf format=rgb24,scale=out_color_matrix=bt709,format=yuv420p {output_video_tmp}"
+    ret = os.system(cmd)
+    if ret == 0:
+        print(f"tmp.mp4 saved at {output_video_dir}")
+    else:
+        raise ValueError(f"error running {cmd}")
+    # add audio
+    output_video = os.path.join(output_video_dir, "output.mp4")
+    cmd = f"ffmpeg -i {output_video_tmp} -i {input_audio} -c:v copy -c:a aac -strict experimental {output_video}"
+    ret = os.system(cmd)
+    if ret == 0:
+        print(f"Saved at {output_video}")
+    else:
+        raise ValueError(f"error running {cmd}")
+    
+
 def fusion_head_body():
-# data_fusion/body 的 torso_imgs 和 data_fusion/head 的 head_neck_imgs 拼接
+    # data_fusion/body 的 torso_imgs 和 data_fusion/head 的 head_neck_imgs 拼接
     print("fusion head body")
+    
     output_imgs_dir = "data_fusion/output/"
-    body_imgs_dir = "data_fusion/body/torso_imgs"
+
+    body_imgs_dir = "data_fusion/body/without_head_imgs"
     body_imgs_names = glob.glob(os.path.join(body_imgs_dir, "*.png"))
     head_imgs_dir = "data_fusion/head/head_neck_imgs"
     head_imgs_names = glob.glob(os.path.join(head_imgs_dir, "*.png"))
@@ -363,9 +393,13 @@ def fusion_head_body():
         print("{}:{}".format(head_img_name, body_img_name))
         output_img_name = os.path.join(output_imgs_dir, img_name)
         
-        position = (300, 454)
+        position = (255, 530)
         # 执行粘贴操作
         overlay_images(body_img_name, head_img_name, output_img_name, position)
+
+    output_video_dir = "data_fusion/"
+    input_audio = "data_fusion/input/audio/aud.wav"
+    gen_video(output_imgs_dir, input_audio, output_video_dir)
     
 
 
