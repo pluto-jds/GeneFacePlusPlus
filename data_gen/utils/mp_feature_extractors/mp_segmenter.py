@@ -282,9 +282,10 @@ class MediapipeSegmenter:
             selected_mask = segmap[[1,2,3,5], :, :].sum(axis=0)[None,:] > 0.5 
             selected_mask_2d = selected_mask[0].astype(np.uint8)
             
-            feathered_mask = self._create_feathered_mask(selected_mask_2d*255, 51)
+            kernel = np.ones((21,21), np.uint8)
+            eroded_img = cv2.erode(selected_mask_2d*255, kernel, iterations=1)
+            feathered_mask = cv2.GaussianBlur(eroded_img, (41, 41), 0)
             
-            alpha = feathered_mask / 255.0
             result = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8) 
             result[:, :, 0] = img[:, :, 0] 
             result[:, :, 1] = img[:, :, 1] 
