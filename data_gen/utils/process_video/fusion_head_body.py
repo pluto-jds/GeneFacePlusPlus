@@ -48,7 +48,7 @@ from scipy.ndimage import binary_erosion, binary_dilation
 from sklearn.neighbors import NearestNeighbors
 from mediapipe.tasks.python import vision
 from data_gen.utils.mp_feature_extractors.mp_segmenter import MediapipeSegmenter, encode_segmap_mask_to_image, decode_segmap_mask_from_image, job_cal_seg_map_for_image
-from PIL import Image
+from PIL import Image,ImageChops
 
 seg_model   = None
 segmenter   = None
@@ -350,6 +350,69 @@ def overlay_images(body_img_path, head_img_path, output_img_path, position):
     # 保存合成后的图像
     body_img.save(output_img_path)
 
+def overlay_images_cv2(body_img_path, head_img_path, output_img_path, position):
+    """
+    将带有 alpha 通道的头部图像粘贴到身体图像上的指定位置，并保存合成后的图像。
+
+    :param body_img_path: 身体图像的路径
+    :param head_img_path: 头部图像的路径
+    :param output_img_path: 输出合成图像的路径
+    :param position: 粘贴位置的元组 (x, y)
+    """
+    # 读取身体图像和头部图像
+    body_img = cv2.imread(body_img_path, cv2.IMREAD_UNCHANGED)
+    head_img = cv2.imread(head_img_path, cv2.IMREAD_UNCHANGED)
+
+    # 确保头部图像有 alpha 通道
+    if head_img.shape[2] == 3:
+        # 添加 alpha 通道
+        head_img = np.dstack([head_img, np.ones((head_img.shape[0], head_img.shape[1]), dtype=np.uint8) * 255])
+
+    # 目标图像的尺寸
+    body_h, body_w = body_img.shape[:2]
+    head_h, head_w = head_img.shape[:2]
+
+    # 确保粘贴位置在目标图像的范围内
+    x, y = position
+    if x + head_w > body_w or y + head_h > body_h:
+        raise ValueError("头部图像超出身体图像的范围")
+
+    # 创建合成图像的副本
+    combined_img = body_img.copy()
+
+    # 提取 alpha 通道
+    alpha_head = head_img[:, :, 3] / 255.0
+    alpha_body = 1.0 - alpha_head
+
+    # 提取 RGB 组件
+    head_rgb = head_img[:, :, :3]
+    body_rgb = combined_img[y:y + head_h, x:x + head_w, :3]
+
+    # 计算合成后的 RGB
+    new_rgb = alpha_head[:, :, np.newaxis] * head_rgb + alpha_body[:, :, np.newaxis] * body_rgb
+
+    # 替换目标区域
+    combined_img[y:y + head_h, x:x + head_w, :3] = new_rgb
+
+    # 保存合成后的图像
+    cv2.imwrite(output_img_path, combined_img)
+
+def composite_images(body_img_path, head_img_path, output_img_path, position):
+    body_img = Image.open(body_img_path)
+    head_img = Image.open(head_img_path)
+    # 确保背景和覆盖图像都是 RGBA 模式
+    background_img = body_img.convert('RGBA')
+    overlay_img = head_img.convert('RGBA')
+
+    # 创建一个与背景图像相同大小的透明图像
+    result_img = Image.new('RGBA', background_img.size)
+    
+    # 粘贴覆盖图像到指定位置
+    result_img.paste(background_img, (0, 0))
+    result_img.paste(overlay_img, position, overlay_img)  # 使用 overlay_img 作为掩码
+    result_img.save(output_img_path)
+    return result_img
+
 def calculate_face_pos():
     pass
 
@@ -401,13 +464,13 @@ def fusion_head_body():
         
         position = (255, 530)
         # 执行粘贴操作
-        overlay_images(body_img_name, head_img_name, output_img_name, position)
+        overlay_images_cv2(body_img_name, head_img_name, output_img_name, position)
+        #overlay_images(body_img_name, head_img_name, output_img_name, position)
+        #composite_images(body_img_name, head_img_name, output_img_name, position)
 
     output_video_dir = "data_fusion/"
     input_audio = "data_fusion/input/audio/aud.wav"
     gen_video(output_imgs_dir, input_audio, output_video_dir)
-    
-
 
 if __name__ == '__main__':
     import argparse, glob, tqdm, random

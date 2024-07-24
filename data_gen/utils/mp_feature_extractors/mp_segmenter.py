@@ -232,6 +232,7 @@ class MediapipeSegmenter:
     def _create_feathered_mask(self, mask, kernel_size=21):
         """ 创建一个羽化效果的蒙版 """
         # 创建一个羽化效果的蒙版
+
         feathered_mask = cv2.GaussianBlur(mask, (kernel_size, kernel_size), 0)
         
         return feathered_mask
@@ -285,9 +286,9 @@ class MediapipeSegmenter:
             
             alpha = feathered_mask / 255.0
             result = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8) 
-            result[:, :, 0] = img[:, :, 0] * alpha
-            result[:, :, 1] = img[:, :, 1] * alpha
-            result[:, :, 2] = img[:, :, 2] * alpha
+            result[:, :, 0] = img[:, :, 0] 
+            result[:, :, 1] = img[:, :, 1] 
+            result[:, :, 2] = img[:, :, 2] 
             img = result
             selected_mask = (feathered_mask[None, :, :] > 0) 
             feathered_mask = feathered_mask[:, :, np.newaxis]
