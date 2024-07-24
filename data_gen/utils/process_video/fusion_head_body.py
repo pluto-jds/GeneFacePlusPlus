@@ -205,12 +205,19 @@ def generate_segment_imgs_job(img_name, segmap, img):
     save_rgb_image_to_path(encoded_segmap, out_img_name)
 
     for mode in ['head', 'torso', 'person', 'bg', 'head_neck', 'without_head', 'full']:
-        out_img, mask = seg_model._seg_out_img_with_segmap(img, segmap, mode=mode)
-        img_alpha = 255 * np.ones((img.shape[0], img.shape[1], 1), dtype=np.uint8) # alpha
-        mask = mask[0][..., None]
-        img_alpha[~mask] = 0
-        out_img_name = img_name.replace("/gt_imgs/", f"/{mode}_imgs/").replace(".jpg", ".png")
-        save_rgb_alpha_image_to_path(out_img, img_alpha, out_img_name)
+        print(mode)
+        if mode == 'head_neck':
+            out_img, mask, img_alpha = seg_model._seg_out_img_with_segmap_alpha(img, segmap, mode=mode)
+            out_img_name = img_name.replace("/gt_imgs/", f"/{mode}_imgs/").replace(".jpg", ".png")
+            save_rgb_alpha_image_to_path(out_img, img_alpha, out_img_name)
+
+        else:
+            out_img, mask = seg_model._seg_out_img_with_segmap(img, segmap, mode=mode)
+            img_alpha = 255 * np.ones((img.shape[0], img.shape[1], 1), dtype=np.uint8) # alpha
+            mask = mask[0][..., None]
+            img_alpha[~mask] = 0
+            out_img_name = img_name.replace("/gt_imgs/", f"/{mode}_imgs/").replace(".jpg", ".png")
+            save_rgb_alpha_image_to_path(out_img, img_alpha, out_img_name)
 
     
     inpaint_torso_img, inpaint_torso_img_mask, inpaint_torso_with_bg_img, inpaint_torso_with_bg_img_mask = inpaint_torso_job(img, segmap)
