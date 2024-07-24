@@ -278,7 +278,6 @@ class MediapipeSegmenter:
         # 
         img = copy.deepcopy(img)
         if mode == 'head_neck':
-            print("img shape:",img.shape)
             selected_mask = segmap[[1,2,3,5], :, :].sum(axis=0)[None,:] > 0.5 
             selected_mask_2d = selected_mask[0].astype(np.uint8)
             
@@ -289,9 +288,6 @@ class MediapipeSegmenter:
             result[:, :, 0] = img[:, :, 0] * alpha
             result[:, :, 1] = img[:, :, 1] * alpha
             result[:, :, 2] = img[:, :, 2] * alpha
-
-            tmp_result = Image.fromarray(result)
-            tmp_result.save('/home/conor/ailip_project/GeneFacePlusPlus/test1.png')
             img = result
             selected_mask = (feathered_mask[None, :, :] > 0) 
             feathered_mask = feathered_mask[:, :, np.newaxis]
